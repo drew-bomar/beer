@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Map as MapLibreMap, Marker, NavigationControl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "@/lib/maplibre-setup";
 
 export const LIBERTY_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 /** St. Louis fallback center. */

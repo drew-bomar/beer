@@ -10,6 +10,7 @@ import type {
   MapTouchEvent,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "@/lib/maplibre-setup";
 import type { LngLat } from "@/lib/types";
 import { STL_FALLBACK } from "@/lib/types";
 import { circleRing } from "@/lib/geo";

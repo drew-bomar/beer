@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Map as MapLibreMap, NavigationControl, LngLatBounds, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "@/lib/maplibre-setup";
 import { LIBERTY_STYLE, STL_CENTER } from "./MapPicker";
 
 /** A polygon = one outer ring of [lng, lat] pairs (unclosed; closing is implicit). */
