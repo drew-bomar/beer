@@ -55,6 +55,10 @@ export default function BeerMap(props: BeerMapProps) {
     // MapLibre's own AttributionControl (OSM credit comes from the style),
     // top-right so the bottom results sheet never hides it.
     map.addControl(new AttributionControl({ compact: true }), "top-right");
+    if (process.env.NODE_ENV !== "production") {
+      (window as unknown as { __beerMap?: MapLibreMap }).__beerMap = map;
+      map.on("error", (e) => console.error("[beer-map]", e.error?.message ?? e));
+    }
 
     map.on("load", () => {
       // Coverage districts: subtle shaded fill so users see where Beer is live.
@@ -342,5 +346,8 @@ export default function BeerMap(props: BeerMapProps) {
     });
   }, [props.pins, props.selectedVenueId, ready]);
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  // h-full/w-full (not just inset-0): maplibre-gl.css sets `.maplibregl-map { position: relative }`
+  // at equal specificity to Tailwind's `absolute`, and if it wins the cascade, inset-0 sizing goes
+  // inert and the map initializes into a 0-height container (blank map, no tile requests).
+  return <div ref={containerRef} className="absolute inset-0 h-full w-full" />;
 }
