@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: beer-db
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_USER: beer
+      POSTGRES_PASSWORD: beer
+      POSTGRES_DB: beer
+    volumes:
+      - beer-db-data:/var/lib/postgresql/data
+      # SQL in db/migrations runs once, in filename order, on first container start.
+      # After changing migrations, reset with: docker compose down -v && docker compose up -d
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  beer-db-data:
