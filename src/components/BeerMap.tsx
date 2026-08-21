@@ -57,7 +57,8 @@ export default function BeerMap(props: BeerMapProps) {
     map.addControl(new AttributionControl({ compact: true }), "top-right");
     if (process.env.NODE_ENV !== "production") {
       (window as unknown as { __beerMap?: MapLibreMap }).__beerMap = map;
-      map.on("error", (e) => console.error("[beer-map]", e.error?.message ?? e));
+      // warn, not error: Next dev escalates console.error into a full-screen overlay
+      map.on("error", (e) => console.warn("[beer-map]", e.error?.message ?? e));
     }
 
     map.on("load", () => {
@@ -174,13 +175,15 @@ export default function BeerMap(props: BeerMapProps) {
         if (p.ringClosed) return; // adjust via dragging; taps do nothing
         // A tap on an existing vertex never adds a new one; on the first
         // vertex (with 3+ points) it closes the ring.
-        const nearVerts = map.queryRenderedFeatures(
-          [
-            [e.point.x - 12, e.point.y - 12],
-            [e.point.x + 12, e.point.y + 12],
-          ],
-          { layers: ["draw-verts"] },
-        );
+        const nearVerts = map.getLayer("draw-verts")
+          ? map.queryRenderedFeatures(
+              [
+                [e.point.x - 12, e.point.y - 12],
+                [e.point.x + 12, e.point.y + 12],
+              ],
+              { layers: ["draw-verts"] },
+            )
+          : [];
         if (nearVerts.length > 0) {
           if (nearVerts.some((f) => f.properties?.first) && p.vertices.length >= 3) {
             p.onCloseRing();
@@ -199,6 +202,8 @@ export default function BeerMap(props: BeerMapProps) {
         p.onAddVertex([e.lngLat.lng, e.lngLat.lat]);
         return;
       }
+      // Guard: clicks can land before the style (and our layers) finish loading.
+      if (!map.getLayer("venues-circles")) return;
       const hits = map.queryRenderedFeatures(
         [
           [e.point.x - 8, e.point.y - 8],
