@@ -1,25 +1,13 @@
 import { sql } from "@/lib/db";
+import { parseArea, type AreaInput } from "@/lib/search-area";
+import { effectivePrices, type EffectivePrice } from "@/lib/effective-price";
+import {
+  fetchSingleServingOfferings,
+  fetchSpecials,
+  type OfferingRow,
+} from "@/lib/venue-data";
 
 export const dynamic = "force-dynamic";
-
-const MAX_RADIUS_MILES = 5;
-const METERS_PER_MILE = 1609.344;
-const MAX_POLYGON_VERTICES = 200;
-
-type LngLat = [number, number];
-
-function isLngLat(p: unknown): p is LngLat {
-  return (
-    Array.isArray(p) &&
-    p.length === 2 &&
-    typeof p[0] === "number" &&
-    typeof p[1] === "number" &&
-    Number.isFinite(p[0]) &&
-    Number.isFinite(p[1]) &&
-    Math.abs(p[0]) <= 180 &&
-    Math.abs(p[1]) <= 90
-  );
-}
 
 function badRequest(message: string) {
   return Response.json({ error: message }, { status: 400 });
@@ -32,15 +20,6 @@ type VenueRow = {
   address: string;
   lng: number;
   lat: number;
-  beer_name: string;
-  format: string;
-  size_oz: number;
-  size_assumed: boolean;
-  price: number;
-  price_per_12oz: number;
-  source: string;
-  verified: boolean;
-  last_verified_at: Date;
 };
 
 /**
@@ -49,121 +28,108 @@ type VenueRow = {
  *
  * The search area is used transiently for this query only — nothing about it
  * (including GPS-derived centers) is ever written to the database.
+ *
+ * Ranking (BEE-24): a venue ranks by the cheapest EFFECTIVE per-12oz across its
+ * single-serving offerings — active structured specials substitute their price.
  */
 export async function POST(req: Request) {
-  let body: { polygon?: unknown; center?: unknown; radiusMiles?: unknown };
+  let body: AreaInput;
   try {
     body = await req.json();
   } catch {
     return badRequest("Invalid JSON body");
   }
 
-  const hasPolygon = body.polygon !== undefined;
-  const hasCenter = body.center !== undefined;
-  if (hasPolygon === hasCenter) {
-    return badRequest("Provide exactly one of `polygon` or `center` (+ radiusMiles)");
-  }
-
-  // Build the geo predicates as parameterized SQL fragments.
-  let venuePredicate;
-  let coveragePredicate;
-
-  if (hasPolygon) {
-    const poly = body.polygon;
-    if (
-      !Array.isArray(poly) ||
-      poly.length < 3 ||
-      poly.length > MAX_POLYGON_VERTICES ||
-      !poly.every(isLngLat)
-    ) {
-      return badRequest(
-        `\`polygon\` must be 3–${MAX_POLYGON_VERTICES} [lng,lat] pairs`,
-      );
-    }
-    // Close the ring if the caller didn't.
-    const first = poly[0] as LngLat;
-    const last = poly[poly.length - 1] as LngLat;
-    const ring =
-      first[0] === last[0] && first[1] === last[1] ? poly : [...poly, first];
-    const geojson = JSON.stringify({ type: "Polygon", coordinates: [ring] });
-    // st_makevalid forgives self-intersections from finger-drawn shapes.
-    const area = sql`st_makevalid(st_geomfromgeojson(${geojson}))::geography`;
-    venuePredicate = sql`st_covers(${area}, v.location)`;
-    coveragePredicate = sql`st_intersects(c.area, ${area})`;
-  } else {
-    if (!isLngLat(body.center)) {
-      return badRequest("`center` must be a [lng,lat] pair");
-    }
-    const radiusMiles = Number(body.radiusMiles ?? 1);
-    if (!Number.isFinite(radiusMiles) || radiusMiles <= 0) {
-      return badRequest("`radiusMiles` must be a positive number");
-    }
-    const meters = Math.min(radiusMiles, MAX_RADIUS_MILES) * METERS_PER_MILE;
-    const [lng, lat] = body.center;
-    const point = sql`st_setsrid(st_makepoint(${lng}, ${lat}), 4326)::geography`;
-    venuePredicate = sql`st_dwithin(v.location, ${point}, ${meters})`;
-    coveragePredicate = sql`st_dwithin(c.area, ${point}, ${meters})`;
-  }
+  const area = parseArea(body);
+  if (!area.ok) return badRequest(area.error);
 
   try {
-    const [rows, [{ covered }]] = await Promise.all([
+    const [venues, [{ covered }]] = await Promise.all([
       sql<VenueRow[]>`
         select
           v.id, v.slug, v.name, v.address,
           st_x(v.location::geometry)::float8 as lng,
-          st_y(v.location::geometry)::float8 as lat,
-          o.beer_name,
-          o.format::text as format,
-          o.size_oz::float8 as size_oz,
-          o.size_assumed,
-          o.price::float8 as price,
-          o.price_per_12oz::float8 as price_per_12oz,
-          o.source::text as source,
-          o.verified,
-          o.last_verified_at
+          st_y(v.location::geometry)::float8 as lat
         from venues v
-        join lateral (
-          select o.beer_name, o.format, o.size_oz, o.size_assumed, o.price,
-                 o.price_per_12oz, o.source, o.verified, o.last_verified_at
-          from offerings o
-          where o.venue_id = v.id
-            -- Ranking counts single servings only (CLAUDE.md): never pitchers/buckets.
-            and o.format in ('draft', 'bottle', 'can')
-          order by o.price_per_12oz asc, o.price asc
-          limit 1
-        ) o on true
-        where v.status = 'active' and ${venuePredicate}
-        order by o.price_per_12oz asc, o.price asc, v.name asc
+        where v.status = 'active' and ${area.venuePredicate}
       `,
       sql<{ covered: boolean }[]>`
         select exists(
-          select 1 from coverage_areas c where ${coveragePredicate}
+          select 1 from coverage_areas c where ${area.coveragePredicate}
         ) as covered
       `,
     ]);
 
-    return Response.json({
-      coverage: covered,
-      venues: rows.map((r) => ({
-        id: r.id,
-        slug: r.slug,
-        name: r.name,
-        address: r.address,
-        lng: r.lng,
-        lat: r.lat,
+    const venueIds = venues.map((v) => v.id);
+    const [offerings, specials] = await Promise.all([
+      fetchSingleServingOfferings(venueIds),
+      fetchSpecials(venueIds),
+    ]);
+
+    const now = new Date();
+    const results = [];
+    for (const v of venues) {
+      const venueOfferings = offerings.filter((o) => o.venue_id === v.id);
+      if (venueOfferings.length === 0) continue;
+      const priced = effectivePrices(
+        venueOfferings,
+        specials.filter((s) => s.venue_id === v.id),
+        now,
+      );
+
+      // Cheapest by effective per-12oz (then effective price) — the ranking key.
+      let cheapest: { o: OfferingRow; p: EffectivePrice } | null = null;
+      for (const o of venueOfferings) {
+        const p = priced.get(o.id);
+        if (!p) continue;
+        if (
+          cheapest === null ||
+          p.effectivePricePer12oz < cheapest.p.effectivePricePer12oz ||
+          (p.effectivePricePer12oz === cheapest.p.effectivePricePer12oz &&
+            p.effectivePrice < cheapest.p.effectivePrice)
+        ) {
+          cheapest = { o, p };
+        }
+      }
+      if (!cheapest) continue;
+
+      results.push({
+        id: v.id,
+        slug: v.slug,
+        name: v.name,
+        address: v.address,
+        lng: v.lng,
+        lat: v.lat,
         cheapest: {
-          beer_name: r.beer_name,
-          format: r.format,
-          size_oz: r.size_oz,
-          size_assumed: r.size_assumed,
-          price: r.price,
-          price_per_12oz: r.price_per_12oz,
-          source: r.source,
-          verified: r.verified,
-          last_verified_at: r.last_verified_at,
+          beer_name: cheapest.o.beer_name,
+          format: cheapest.o.format,
+          size_oz: cheapest.o.size_oz,
+          size_assumed: cheapest.o.size_assumed,
+          // Effective (deal-adjusted) values — same fields the cards already show.
+          price: cheapest.p.effectivePrice,
+          price_per_12oz: cheapest.p.effectivePricePer12oz,
+          source: cheapest.o.source,
+          verified: cheapest.o.verified,
+          last_verified_at: cheapest.o.last_verified_at,
+          // BEE-24 additions (null/false when no active deal).
+          on_deal: cheapest.p.onDeal,
+          deal_ends_at: cheapest.p.dealEndsAt,
+          original_price: cheapest.p.onDeal ? cheapest.p.originalPrice : null,
+          original_price_per_12oz: cheapest.p.onDeal
+            ? cheapest.p.originalPricePer12oz
+            : null,
         },
-      })),
-    });
+      });
+    }
+
+    results.sort(
+      (a, b) =>
+        a.cheapest.price_per_12oz - b.cheapest.price_per_12oz ||
+        a.cheapest.price - b.cheapest.price ||
+        a.name.localeCompare(b.name),
+    );
+
+    return Response.json({ coverage: covered, venues: results });
   } catch {
     // Degenerate geometry (e.g. all vertices collinear) can make PostGIS throw.
     return badRequest("Could not interpret the search area");
