@@ -26,6 +26,7 @@ type BeerMapProps = {
   vertices: LngLat[];
   ringClosed: boolean;
   radiusCircle: { center: LngLat; radiusMiles: number } | null;
+  userLocation: LngLat | null;
   pins: MapPin[];
   selectedVenueId: string | null;
   onReady: (map: MapLibreMap) => void;
@@ -89,6 +90,30 @@ export default function BeerMap(props: BeerMapProps) {
           if (fc && src) src.setData(fc);
         })
         .catch(() => {});
+
+      // User's current location: white-ringed blue dot (classic "you are here").
+      map.addSource("user-location", { type: "geojson", data: EMPTY_FC });
+      map.addLayer({
+        id: "user-location-halo",
+        type: "circle",
+        source: "user-location",
+        paint: {
+          "circle-radius": 14,
+          "circle-color": "#2563eb",
+          "circle-opacity": 0.18,
+        },
+      });
+      map.addLayer({
+        id: "user-location-dot",
+        type: "circle",
+        source: "user-location",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#2563eb",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2.5,
+        },
+      });
 
       // Radius search ring.
       map.addSource("radius", { type: "geojson", data: EMPTY_FC });
@@ -331,6 +356,28 @@ export default function BeerMap(props: BeerMapProps) {
       ],
     });
   }, [props.radiusCircle, ready]);
+
+  // Keep the "you are here" dot in sync with the browser's geolocation fix.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const src = map.getSource("user-location") as GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData(
+      props.userLocation
+        ? {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: props.userLocation },
+                properties: {},
+              },
+            ],
+          }
+        : EMPTY_FC,
+    );
+  }, [props.userLocation, ready]);
 
   // Sync venue pins.
   useEffect(() => {

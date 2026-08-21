@@ -373,6 +373,7 @@ export default function MapApp() {
         vertices={vertices}
         ringClosed={ringClosed}
         radiusCircle={radiusCircle}
+        userLocation={userPos}
         pins={pins}
         selectedVenueId={selectedVenueId}
         onReady={(map) => {
