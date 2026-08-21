@@ -13,13 +13,9 @@ import {
   type SpecialRow,
 } from "@/lib/venue-data";
 
-export const dynamic = "force-dynamic";
+import { CATEGORY_LABELS } from "@/lib/format";
 
-const CATEGORY_LABELS: Record<string, string> = {
-  all_draft: "All draft beer",
-  all_bottles_cans: "All bottles & cans",
-  all_beer: "All beer",
-};
+export const dynamic = "force-dynamic";
 
 function badRequest(message: string) {
   return Response.json({ error: message }, { status: 400 });

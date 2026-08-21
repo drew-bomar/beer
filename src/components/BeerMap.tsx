@@ -10,19 +10,22 @@ import type {
   MapTouchEvent,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { LngLat, VenueResult } from "@/lib/types";
+import type { LngLat } from "@/lib/types";
 import { STL_FALLBACK } from "@/lib/types";
 import { circleRing } from "@/lib/geo";
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const CLOSE_RING_PX = 28; // tap-within distance of the first vertex that auto-closes
 
+/** A venue pin: label is the $/12oz shown under the dot. */
+export type MapPin = { id: string; lng: number; lat: number; label: string };
+
 type BeerMapProps = {
   drawMode: boolean;
   vertices: LngLat[];
   ringClosed: boolean;
   radiusCircle: { center: LngLat; radiusMiles: number } | null;
-  venues: VenueResult[];
+  pins: MapPin[];
   selectedVenueId: string | null;
   onReady: (map: MapLibreMap) => void;
   onAddVertex: (p: LngLat) => void;
@@ -327,17 +330,17 @@ export default function BeerMap(props: BeerMapProps) {
     if (!src) return;
     src.setData({
       type: "FeatureCollection",
-      features: props.venues.map((v) => ({
+      features: props.pins.map((p) => ({
         type: "Feature",
         properties: {
-          id: v.id,
-          selected: v.id === props.selectedVenueId,
-          label: `$${v.cheapest.price_per_12oz.toFixed(2)}`,
+          id: p.id,
+          selected: p.id === props.selectedVenueId,
+          label: p.label,
         },
-        geometry: { type: "Point", coordinates: [v.lng, v.lat] },
+        geometry: { type: "Point", coordinates: [p.lng, p.lat] },
       })),
     });
-  }, [props.venues, props.selectedVenueId, ready]);
+  }, [props.pins, props.selectedVenueId, ready]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

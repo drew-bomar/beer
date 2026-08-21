@@ -2,8 +2,9 @@ import { sql } from "@/lib/db";
 import { parseArea, type AreaInput } from "@/lib/search-area";
 import { effectivePrices, type EffectivePrice } from "@/lib/effective-price";
 import {
-  fetchSingleServingOfferings,
+  fetchOfferings,
   fetchSpecials,
+  SINGLE_SERVING,
   type OfferingRow,
 } from "@/lib/venue-data";
 
@@ -22,18 +23,73 @@ type VenueRow = {
   lat: number;
 };
 
+const FILTER_FORMATS: readonly string[] = ["draft", "bottle", "can", "pitcher"];
+const MAX_BRAND_QUERY = 80;
+
+type Filters = {
+  brand: string | null; // lowercased, trimmed
+  formats: string[] | null; // null = default (single-serving)
+  activeDealsOnly: boolean;
+};
+
+type FilterInput = AreaInput & {
+  brand?: unknown;
+  formats?: unknown;
+  activeDealsOnly?: unknown;
+};
+
+function parseFilters(body: FilterInput): { ok: true; filters: Filters } | { ok: false; error: string } {
+  let brand: string | null = null;
+  if (body.brand !== undefined) {
+    if (typeof body.brand !== "string") return { ok: false, error: "`brand` must be a string" };
+    const trimmed = body.brand.trim().slice(0, MAX_BRAND_QUERY).toLowerCase();
+    brand = trimmed === "" ? null : trimmed;
+  }
+
+  let formats: string[] | null = null;
+  if (body.formats !== undefined) {
+    if (
+      !Array.isArray(body.formats) ||
+      !body.formats.every((f): f is string => typeof f === "string" && FILTER_FORMATS.includes(f))
+    ) {
+      return { ok: false, error: "`formats` must be an array of draft|bottle|can|pitcher" };
+    }
+    const uniq = [...new Set(body.formats)];
+    formats = uniq.length === 0 ? null : uniq;
+  }
+
+  if (body.activeDealsOnly !== undefined && typeof body.activeDealsOnly !== "boolean") {
+    return { ok: false, error: "`activeDealsOnly` must be a boolean" };
+  }
+
+  return {
+    ok: true,
+    filters: { brand, formats, activeDealsOnly: body.activeDealsOnly === true },
+  };
+}
+
 /**
  * POST /api/search
  * Body: { polygon: [[lng,lat], ...] }  OR  { center: [lng,lat], radiusMiles: number }
+ * plus optional filters (BEE-22): { brand?, formats?, activeDealsOnly? }.
  *
  * The search area is used transiently for this query only — nothing about it
  * (including GPS-derived centers) is ever written to the database.
  *
  * Ranking (BEE-24): a venue ranks by the cheapest EFFECTIVE per-12oz across its
  * single-serving offerings — active structured specials substitute their price.
+ *
+ * Filters narrow the candidate offerings BEFORE the cheapest is chosen, so
+ * ranking stays correct:
+ * - brand: case-insensitive substring of offerings.brand or beer_name.
+ * - formats: only those formats compete. Pitchers never rank by default
+ *   (CLAUDE.md) — they join only when "pitcher" is explicitly chosen, ranked
+ *   by per-12oz among the selected formats and labeled as pitchers client-side.
+ * - activeDealsOnly: only offerings currently on a structured deal compete;
+ *   venues without one disappear. The returned cheapest is therefore a deal.
  */
 export async function POST(req: Request) {
-  let body: AreaInput;
+  let body: FilterInput;
   try {
     body = await req.json();
   } catch {
@@ -42,6 +98,9 @@ export async function POST(req: Request) {
 
   const area = parseArea(body);
   if (!area.ok) return badRequest(area.error);
+  const parsedFilters = parseFilters(body);
+  if (!parsedFilters.ok) return badRequest(parsedFilters.error);
+  const { brand, formats, activeDealsOnly } = parsedFilters.filters;
 
   try {
     const [venues, [{ covered }]] = await Promise.all([
@@ -62,14 +121,21 @@ export async function POST(req: Request) {
 
     const venueIds = venues.map((v) => v.id);
     const [offerings, specials] = await Promise.all([
-      fetchSingleServingOfferings(venueIds),
+      fetchOfferings(venueIds, formats ?? SINGLE_SERVING),
       fetchSpecials(venueIds),
     ]);
+
+    const brandMatch = (o: OfferingRow) =>
+      brand === null ||
+      o.beer_name.toLowerCase().includes(brand) ||
+      (o.brand !== null && o.brand.toLowerCase().includes(brand));
 
     const now = new Date();
     const results = [];
     for (const v of venues) {
-      const venueOfferings = offerings.filter((o) => o.venue_id === v.id);
+      const venueOfferings = offerings.filter(
+        (o) => o.venue_id === v.id && brandMatch(o),
+      );
       if (venueOfferings.length === 0) continue;
       const priced = effectivePrices(
         venueOfferings,
@@ -78,10 +144,19 @@ export async function POST(req: Request) {
       );
 
       // Cheapest by effective per-12oz (then effective price) — the ranking key.
+      // Pitchers (only present when explicitly filtered in) never get deal
+      // pricing; their effective values are their sticker values.
       let cheapest: { o: OfferingRow; p: EffectivePrice } | null = null;
       for (const o of venueOfferings) {
-        const p = priced.get(o.id);
-        if (!p) continue;
+        const p: EffectivePrice = priced.get(o.id) ?? {
+          effectivePrice: o.price,
+          effectivePricePer12oz: o.price_per_12oz,
+          onDeal: false,
+          dealEndsAt: null,
+          originalPrice: o.price,
+          originalPricePer12oz: o.price_per_12oz,
+        };
+        if (activeDealsOnly && !p.onDeal) continue;
         if (
           cheapest === null ||
           p.effectivePricePer12oz < cheapest.p.effectivePricePer12oz ||

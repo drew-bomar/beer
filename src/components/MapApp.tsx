@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
-import BeerMap from "./BeerMap";
-import ResultsSheet from "./ResultsSheet";
-import type { LngLat, SearchArea, SearchResponse, VenueResult } from "@/lib/types";
+import BeerMap, { type MapPin } from "./BeerMap";
+import ResultsSheet, { type ResultsView } from "./ResultsSheet";
+import type {
+  HappeningNowResponse,
+  LngLat,
+  SearchArea,
+  SearchFilters,
+  SearchResponse,
+} from "@/lib/types";
 import {
   DEFAULT_RADIUS_MILES,
+  EMPTY_FILTERS,
   MAX_RADIUS_MILES,
   MIN_RADIUS_MILES,
 } from "@/lib/types";
@@ -15,13 +22,34 @@ import {
   clearStoredArea,
   getDeviceId,
   loadStoredArea,
+  loadStoredFilters,
   saveStoredArea,
+  saveStoredFilters,
 } from "@/lib/storage";
+import { DEAL_TIME_ZONE } from "@/lib/deals";
 
 type Mode = "radius" | "draw";
 type RequestState = "idle" | "sending" | "sent" | "error";
 
 const FIT_PADDING = { top: 130, left: 36, right: 36, bottom: 220 };
+
+/** BEE-26: purely presentational — is it 5:00–5:59 PM in St. Louis? */
+function isFiveOClockInChicago(): boolean {
+  const hour = new Intl.DateTimeFormat("en-US", {
+    timeZone: DEAL_TIME_ZONE,
+    hour: "numeric",
+    hourCycle: "h23",
+  }).format(new Date());
+  return Number(hour) === 17;
+}
+
+// Client clock as an external store: re-checked every 30s; false during SSR
+// so hydration is stable.
+function subscribeToClock(onChange: () => void) {
+  const t = setInterval(onChange, 30_000);
+  return () => clearInterval(t);
+}
+const fiveOClockServerSnapshot = () => false;
 
 export default function MapApp() {
   const [mode, setMode] = useState<Mode>("radius");
@@ -32,11 +60,20 @@ export default function MapApp() {
   const [ringClosed, setRingClosed] = useState(false);
   const [activeArea, setActiveArea] = useState<SearchArea | null>(null);
   const [results, setResults] = useState<SearchResponse | null>(null);
+  const [nowResults, setNowResults] = useState<HappeningNowResponse | null>(null);
+  const [view, setView] = useState<ResultsView>("all");
+  const [filters, setFilters] = useState<SearchFilters>(EMPTY_FILTERS);
   const [searching, setSearching] = useState(false);
   const [restored, setRestored] = useState(false);
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [sheetExpanded, setSheetExpanded] = useState(true);
   const [requestState, setRequestState] = useState<RequestState>("idle");
+  // BEE-26: client-side clock check, re-evaluated every 30s.
+  const fiveOClock = useSyncExternalStore(
+    subscribeToClock,
+    isFiveOClockInChicago,
+    fiveOClockServerSnapshot,
+  );
 
   const mapRef = useRef<MapLibreMap | null>(null);
   const pendingCameraRef = useRef<((map: MapLibreMap) => void) | null>(null);
@@ -56,7 +93,11 @@ export default function MapApp() {
     withMap((map) => map.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: 15.5 }));
   }
 
-  async function runSearch(area: SearchArea, opts: { fit?: boolean } = {}) {
+  async function runSearch(
+    area: SearchArea,
+    opts: { fit?: boolean; filters?: SearchFilters } = {},
+  ) {
+    const f = opts.filters ?? filters;
     const seq = ++searchSeqRef.current;
     setSearching(true);
     setSelectedVenueId(null);
@@ -65,22 +106,42 @@ export default function MapApp() {
     saveStoredArea(area);
     if (opts.fit) fitToArea(area);
     try {
-      const body =
+      const areaBody =
         area.mode === "radius"
           ? { center: area.center, radiusMiles: area.radiusMiles }
           : { polygon: area.vertices };
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`search failed: ${res.status}`);
+      // BEE-22: filters ride along with the area; ranking stays server-side.
+      const searchBody = {
+        ...areaBody,
+        ...(f.brand.trim() !== "" ? { brand: f.brand.trim() } : {}),
+        ...(f.formats.length > 0 ? { formats: f.formats } : {}),
+        ...(f.activeDealsOnly ? { activeDealsOnly: true } : {}),
+      };
+      // Both views fetch together so toggling All ⇄ Happening Now is instant.
+      const [res, nowRes] = await Promise.all([
+        fetch("/api/search", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(searchBody),
+        }),
+        fetch("/api/happening-now", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(areaBody),
+        }),
+      ]);
+      if (!res.ok || !nowRes.ok) throw new Error("search failed");
       const data: SearchResponse = await res.json();
+      const nowData: HappeningNowResponse = await nowRes.json();
       if (seq !== searchSeqRef.current) return; // superseded by a newer search
       setResults(data);
+      setNowResults(nowData);
       setSheetExpanded(true);
     } catch {
-      if (seq === searchSeqRef.current) setResults(null);
+      if (seq === searchSeqRef.current) {
+        setResults(null);
+        setNowResults(null);
+      }
     } finally {
       if (seq === searchSeqRef.current) setSearching(false);
     }
@@ -95,8 +156,8 @@ export default function MapApp() {
     void runSearch({ mode: "radius", center: c, radiusMiles: r }, opts);
   }
 
-  // --- Initial load: restore last area, then ask for location (default mode) ---
-  function restoreStoredArea(stored: SearchArea) {
+  // --- Initial load: restore last area + filters, then ask for location ---
+  function restoreStoredArea(stored: SearchArea, storedFilters: SearchFilters) {
     setRestored(true);
     setActiveArea(stored);
     if (stored.mode === "radius") {
@@ -108,12 +169,14 @@ export default function MapApp() {
       setVertices(stored.vertices);
       setRingClosed(true);
     }
-    void runSearch(stored, { fit: true });
+    void runSearch(stored, { fit: true, filters: storedFilters });
   }
 
   function initFromBrowser() {
     const stored = loadStoredArea();
-    if (stored) restoreStoredArea(stored);
+    const storedFilters = loadStoredFilters();
+    setFilters(storedFilters);
+    if (stored) restoreStoredArea(stored, storedFilters);
 
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -137,6 +200,20 @@ export default function MapApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- Filters (BEE-22) ---
+  function onFiltersChange(next: SearchFilters) {
+    setFilters(next);
+    saveStoredFilters(next);
+    if (activeArea) void runSearch(activeArea, { filters: next });
+  }
+
+  // --- View toggle (BEE-25) ---
+  function onViewChange(next: ResultsView) {
+    setView(next);
+    setSelectedVenueId(null);
+    setSheetExpanded(true);
+  }
+
   // --- Mode switching ---
   function switchMode(next: Mode) {
     if (next === mode) return;
@@ -147,6 +224,7 @@ export default function MapApp() {
       if (center) void runSearch({ mode: "radius", center, radiusMiles });
       else {
         setResults(null);
+        setNowResults(null);
         setActiveArea(null);
       }
     }
@@ -180,6 +258,7 @@ export default function MapApp() {
     setRingClosed(false);
     if (activeArea?.mode === "polygon") {
       setResults(null);
+      setNowResults(null);
       setActiveArea(null);
       clearStoredArea();
       setRestored(false);
@@ -191,6 +270,7 @@ export default function MapApp() {
     clearStoredArea();
     setRestored(false);
     setResults(null);
+    setNowResults(null);
     setActiveArea(null);
     setVertices([]);
     setRingClosed(false);
@@ -222,9 +302,9 @@ export default function MapApp() {
   }
 
   // --- Venue selection ---
-  function selectVenueFromList(v: VenueResult) {
+  // List tap: select + expand the card in place (BEE-21); keep the sheet open.
+  function selectVenueFromList(v: { id: string; lng: number; lat: number }) {
     setSelectedVenueId(v.id);
-    setSheetExpanded(false); // reveal the pin under the sheet
     withMap((map) =>
       map.flyTo({
         center: [v.lng, v.lat],
@@ -234,6 +314,7 @@ export default function MapApp() {
     );
   }
 
+  // Pin tap: expand the sheet and the venue's card (it scrolls into view).
   function selectVenueFromMap(id: string) {
     setSelectedVenueId(id);
     setSheetExpanded(true);
@@ -262,6 +343,21 @@ export default function MapApp() {
   const radiusCircle =
     mode === "radius" && center ? { center, radiusMiles } : null;
 
+  const pins: MapPin[] =
+    view === "now"
+      ? (nowResults?.venues ?? []).map((v) => ({
+          id: v.id,
+          lng: v.lng,
+          lat: v.lat,
+          label: `$${v.cheapest_active_deal_per_12oz.toFixed(2)}`,
+        }))
+      : (results?.venues ?? []).map((v) => ({
+          id: v.id,
+          lng: v.lng,
+          lat: v.lat,
+          label: `$${v.cheapest.price_per_12oz.toFixed(2)}`,
+        }));
+
   const areaChipLabel = restored
     ? "Restored last search"
     : activeArea?.mode === "radius"
@@ -277,7 +373,7 @@ export default function MapApp() {
         vertices={vertices}
         ringClosed={ringClosed}
         radiusCircle={radiusCircle}
-        venues={results?.venues ?? []}
+        pins={pins}
         selectedVenueId={selectedVenueId}
         onReady={(map) => {
           mapRef.current = map;
@@ -295,7 +391,11 @@ export default function MapApp() {
       {/* Top controls */}
       <div className="pointer-events-none absolute inset-x-3 top-[calc(0.75rem+env(safe-area-inset-top))] flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <div className="pointer-events-auto flex rounded-full bg-white p-1 shadow-md">
+          <div
+            className={`pointer-events-auto flex rounded-full bg-white p-1 shadow-md ${
+              fiveOClock ? "ring-2 ring-amber-400" : ""
+            }`}
+          >
             <button
               onClick={() => switchMode("radius")}
               className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
@@ -326,6 +426,13 @@ export default function MapApp() {
             </div>
           )}
         </div>
+
+        {/* BEE-26: gold flourish, 5:00–5:59 PM America/Chicago. Presentation only. */}
+        {fiveOClock && (
+          <div className="five-oclock pointer-events-none self-start rounded-full px-3.5 py-1.5 text-xs font-bold text-amber-950 shadow-md">
+            It&apos;s 5 o&apos;clock
+          </div>
+        )}
 
         {mode === "radius" && (
           <div className="pointer-events-auto max-w-sm rounded-2xl bg-white p-3 shadow-md">
@@ -396,13 +503,18 @@ export default function MapApp() {
       </div>
 
       <ResultsSheet
+        view={view}
         results={results}
+        nowResults={nowResults}
         searching={searching}
         hasArea={activeArea !== null}
         userPos={userPos}
         selectedVenueId={selectedVenueId}
         expanded={sheetExpanded}
         requestState={requestState}
+        filters={filters}
+        onViewChange={onViewChange}
+        onFiltersChange={onFiltersChange}
         onToggle={() => setSheetExpanded((e) => !e)}
         onSelectVenue={selectVenueFromList}
         onRequestArea={requestArea}
