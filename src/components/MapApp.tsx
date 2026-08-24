@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import BeerMap, { type MapPin } from "./BeerMap";
 import ResultsSheet, { type ResultsView } from "./ResultsSheet";
@@ -27,6 +28,7 @@ import {
   saveStoredFilters,
 } from "@/lib/storage";
 import { DEAL_TIME_ZONE } from "@/lib/deals";
+import { track } from "@/lib/analytics";
 
 type Mode = "radius" | "draw";
 type RequestState = "idle" | "sending" | "sent" | "error";
@@ -137,6 +139,13 @@ export default function MapApp() {
       setResults(data);
       setNowResults(nowData);
       setSheetExpanded(true);
+      // BEE-30: outcome events (area geometry itself is never sent).
+      if (!data.coverage) {
+        track("coverage_miss", { area_mode: area.mode });
+      } else {
+        track("list_viewed", { area_mode: area.mode, venue_count: data.venues.length });
+        if (data.venues.length === 0) track("zero_results", { area_mode: area.mode });
+      }
     } catch {
       if (seq === searchSeqRef.current) {
         setResults(null);
@@ -158,6 +167,7 @@ export default function MapApp() {
 
   // --- Initial load: restore last area + filters, then ask for location ---
   function restoreStoredArea(stored: SearchArea, storedFilters: SearchFilters) {
+    track("area_restored_from_cache", { area_mode: stored.mode });
     setRestored(true);
     setActiveArea(stored);
     if (stored.mode === "radius") {
@@ -202,6 +212,11 @@ export default function MapApp() {
 
   // --- Filters (BEE-22) ---
   function onFiltersChange(next: SearchFilters) {
+    track("filter_applied", {
+      has_brand: next.brand.trim() !== "",
+      formats: next.formats,
+      active_deals_only: next.activeDealsOnly,
+    });
     setFilters(next);
     saveStoredFilters(next);
     if (activeArea) void runSearch(activeArea, { filters: next });
@@ -209,6 +224,9 @@ export default function MapApp() {
 
   // --- View toggle (BEE-25) ---
   function onViewChange(next: ResultsView) {
+    if (next === "now") {
+      track("happening_now_viewed", { venue_count: nowResults?.venues.length ?? 0 });
+    }
     setView(next);
     setSelectedVenueId(null);
     setSheetExpanded(true);
@@ -238,6 +256,7 @@ export default function MapApp() {
 
   function closeRing() {
     if (vertices.length < 3 || ringClosed) return;
+    track("area_polygon_drawn", { vertex_count: vertices.length });
     setRingClosed(true);
     void runSearch({ mode: "polygon", vertices });
   }
@@ -288,6 +307,7 @@ export default function MapApp() {
       const c = center;
       if (radiusDebounceRef.current) clearTimeout(radiusDebounceRef.current);
       radiusDebounceRef.current = setTimeout(() => {
+        track("area_radius_change", { radius_miles: value });
         void runSearch({ mode: "radius", center: c, radiusMiles: value });
       }, 400);
     }
@@ -304,6 +324,7 @@ export default function MapApp() {
   // --- Venue selection ---
   // List tap: select + expand the card in place (BEE-21); keep the sheet open.
   function selectVenueFromList(v: { id: string; lng: number; lat: number }) {
+    track("card_expanded", { from: "list" });
     setSelectedVenueId(v.id);
     withMap((map) =>
       map.flyTo({
@@ -316,6 +337,7 @@ export default function MapApp() {
 
   // Pin tap: expand the sheet and the venue's card (it scrolls into view).
   function selectVenueFromMap(id: string) {
+    track("card_expanded", { from: "map_pin" });
     setSelectedVenueId(id);
     setSheetExpanded(true);
   }
@@ -327,6 +349,7 @@ export default function MapApp() {
       activeArea.mode === "radius"
         ? activeArea.center
         : verticesCentroid(activeArea.vertices);
+    track("area_request_tapped");
     setRequestState("sending");
     try {
       const res = await fetch("/api/area-requests", {
@@ -377,6 +400,7 @@ export default function MapApp() {
         pins={pins}
         selectedVenueId={selectedVenueId}
         onReady={(map) => {
+          track("map_load");
           mapRef.current = map;
           if (pendingCameraRef.current) {
             pendingCameraRef.current(map);
@@ -426,6 +450,15 @@ export default function MapApp() {
               </button>
             </div>
           )}
+          <div className="flex-1" />
+          {/* BEE-31: About page entry point from the map screen. */}
+          <Link
+            href="/about"
+            aria-label="About Beer"
+            className="pointer-events-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-sm font-semibold text-neutral-600 shadow-md active:bg-neutral-100"
+          >
+            i
+          </Link>
         </div>
 
         {/* BEE-26: gold flourish, 5:00–5:59 PM America/Chicago. Presentation only. */}

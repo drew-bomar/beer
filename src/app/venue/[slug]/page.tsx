@@ -24,6 +24,10 @@ import {
   type OfferingRow,
   type SpecialRow,
 } from "@/lib/venue-data";
+import { sql } from "@/lib/db";
+import { signedPhotoUrl } from "@/lib/supabase-admin";
+import PhotoUpload from "@/components/PhotoUpload";
+import { GoogleLink, VenuePageViewed } from "@/components/VenueTracking";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +44,27 @@ const WEEK: { key: string; label: string }[] = [
 ];
 
 type Props = { params: Promise<{ slug: string }> };
+
+type ApprovedPhoto = { storage_path: string; submitted_at: Date };
+
+/** Most recent APPROVED photo for a venue — the only kind ever shown publicly. */
+async function fetchLatestApprovedPhoto(venueId: string): Promise<ApprovedPhoto | null> {
+  const rows = await sql<ApprovedPhoto[]>`
+    select storage_path, submitted_at
+    from photos
+    where venue_id = ${venueId} and status = 'approved'
+    order by submitted_at desc
+    limit 1
+  `;
+  return rows[0] ?? null;
+}
+
+const photoDateFmt = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "America/Chicago",
+});
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -177,10 +202,13 @@ export default async function VenuePage({ params }: Props) {
     );
   }
 
-  const [offerings, specials] = await Promise.all([
+  const [offerings, specials, approvedPhoto] = await Promise.all([
     fetchOfferings([venue.id]),
     fetchSpecials([venue.id]),
+    fetchLatestApprovedPhoto(venue.id),
   ]);
+  // Private bucket: the public page only ever gets a short-lived signed URL.
+  const photoUrl = approvedPhoto ? await signedPhotoUrl(approvedPhoto.storage_path) : null;
 
   const now = new Date();
   const open = isVenueOpen(venue.hours, now);
@@ -236,14 +264,13 @@ export default async function VenuePage({ params }: Props) {
             </span>
           )}
           {venue.google_url && (
-            <a
+            <GoogleLink
               href={venue.google_url}
-              target="_blank"
-              rel="noopener noreferrer"
+              slug={venue.slug}
               className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 underline"
             >
               Open in Google
-            </a>
+            </GoogleLink>
           )}
         </div>
       </header>
@@ -317,14 +344,28 @@ export default async function VenuePage({ params }: Props) {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
           Menu
         </h2>
-        <div className="mt-2 grid place-items-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
-          <p className="text-sm text-neutral-500">No menu photo yet — coming soon</p>
-          <button
-            disabled
-            className="mt-3 cursor-not-allowed rounded-full bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-500"
-          >
-            Upload a menu photo (coming soon)
-          </button>
+        {photoUrl && approvedPhoto ? (
+          <figure className="mt-2 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+            {/* Signed URLs expire — a plain <img> keeps Next image caching out of it. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoUrl}
+              alt={`Menu photo from ${venue.name}`}
+              className="max-h-[70vh] w-full object-contain"
+            />
+            <figcaption className="px-3 py-2 text-xs text-neutral-500">
+              Menu photo · {photoDateFmt.format(approvedPhoto.submitted_at)}
+            </figcaption>
+          </figure>
+        ) : (
+          <div className="mt-2 rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
+            <p className="text-sm text-neutral-500">
+              No menu photo yet — got one? It helps everyone.
+            </p>
+          </div>
+        )}
+        <div className="grid place-items-center">
+          <PhotoUpload venueId={venue.id} venueSlug={venue.slug} />
         </div>
       </section>
 
@@ -334,6 +375,12 @@ export default async function VenuePage({ params }: Props) {
           Email us
         </a>
       </p>
+      <p className="mt-2 text-center text-xs text-neutral-400">
+        <Link href="/about" className="underline">
+          About Beer
+        </Link>
+      </p>
+      <VenuePageViewed slug={venue.slug} />
     </main>
     </div>
   );
