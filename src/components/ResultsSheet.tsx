@@ -194,6 +194,34 @@ function VenueCard({
 
   const o = venue.cheapest;
 
+  // Roster-only venue (no priced offerings yet): the card is a prompt to add
+  // prices, and tapping goes straight to the venue page where the upload lives.
+  if (o === null) {
+    return (
+      <div ref={ref} className="w-full rounded-xl border border-dashed border-neutral-300 bg-white active:bg-neutral-50">
+        <button
+          onClick={() => router.push(`/venue/${venue.slug}`)}
+          className="w-full p-3 text-left"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span className="truncate font-semibold text-neutral-900">{venue.name}</span>
+                <Distance userPos={userPos} lng={venue.lng} lat={venue.lat} />
+              </div>
+              <div className="mt-0.5 text-sm text-neutral-500">
+                No prices yet — know them? Upload a menu photo
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full border border-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-400">
+              add prices
+            </span>
+          </div>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={ref}
@@ -427,8 +455,14 @@ export default function ResultsSheet({
         ? "No active deals right now"
         : `${n} spot${n === 1 ? "" : "s"} with deals · from $${nowResults!.venues[0].cheapest_active_deal_per_12oz.toFixed(2)} / 12oz`;
   } else if (results!.venues.length === 0) headline = "No cheap beer here";
-  else
-    headline = `${results!.venues.length} spot${results!.venues.length === 1 ? "" : "s"} · cheapest $${results!.venues[0].cheapest.price_per_12oz.toFixed(2)} / 12oz`;
+  else {
+    const n = results!.venues.length;
+    const first = results!.venues[0].cheapest; // priced venues sort before roster-only ones
+    headline =
+      first === null
+        ? `${n} spot${n === 1 ? "" : "s"} · no prices yet`
+        : `${n} spot${n === 1 ? "" : "s"} · cheapest $${first.price_per_12oz.toFixed(2)} / 12oz`;
+  }
 
   const outsideCoverage = active !== null && !active.coverage;
 

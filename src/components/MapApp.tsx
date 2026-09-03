@@ -378,7 +378,8 @@ export default function MapApp() {
           id: v.id,
           lng: v.lng,
           lat: v.lat,
-          label: `$${v.cheapest.price_per_12oz.toFixed(2)}`,
+          // Roster-only venues get an unlabeled pin — present, but not shouting a price.
+          label: v.cheapest ? `$${v.cheapest.price_per_12oz.toFixed(2)}` : "",
         }));
 
   const areaChipLabel = restored

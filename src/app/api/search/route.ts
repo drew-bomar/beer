@@ -132,11 +132,19 @@ export async function POST(req: Request) {
 
     const now = new Date();
     const results = [];
+    // With no filters active, venues without any priced offering still appear
+    // (cheapest: null, ranked last) — a seeded roster must never be invisible,
+    // and their cards double as a "know the prices? add them" prompt (spec §14).
+    const filtersActive = brand !== null || formats !== null || activeDealsOnly;
+    const unpriced = [];
     for (const v of venues) {
       const venueOfferings = offerings.filter(
         (o) => o.venue_id === v.id && brandMatch(o),
       );
-      if (venueOfferings.length === 0) continue;
+      if (venueOfferings.length === 0) {
+        if (!filtersActive) unpriced.push({ ...v, cheapest: null });
+        continue;
+      }
       const priced = effectivePrices(
         venueOfferings,
         specials.filter((s) => s.venue_id === v.id),
@@ -203,8 +211,9 @@ export async function POST(req: Request) {
         a.cheapest.price - b.cheapest.price ||
         a.name.localeCompare(b.name),
     );
+    unpriced.sort((a, b) => a.name.localeCompare(b.name));
 
-    return Response.json({ coverage: covered, venues: results });
+    return Response.json({ coverage: covered, venues: [...results, ...unpriced] });
   } catch {
     // Degenerate geometry (e.g. all vertices collinear) can make PostGIS throw.
     return badRequest("Could not interpret the search area");

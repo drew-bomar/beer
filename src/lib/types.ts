@@ -40,7 +40,8 @@ export type VenueResult = {
   address: string;
   lng: number;
   lat: number;
-  cheapest: CheapestOffering;
+  /** Null for a venue with no priced offerings yet (shown as a prompt to add prices). */
+  cheapest: CheapestOffering | null;
 };
 
 export type SearchResponse = {
