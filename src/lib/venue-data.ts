@@ -86,7 +86,28 @@ export async function fetchOfferings(
       o.is_popular
     from offerings o
     where o.venue_id in ${sql(venueIds)}
+      and o.price is not null
       ${formats !== undefined ? sql`and o.format in ${sql([...formats])}` : sql``}
+  `;
+}
+
+export type UnpricedOfferingRow = {
+  id: string;
+  beer_name: string;
+  brand: string | null;
+  format: string;
+  size_oz: number;
+  size_assumed: boolean;
+};
+
+/** Roster-only rows (menu names a beer, no price known) — venue page display only. */
+export function fetchUnpricedOfferings(venueId: string): Promise<UnpricedOfferingRow[]> {
+  return sql<UnpricedOfferingRow[]>`
+    select o.id, o.beer_name, o.brand, o.format::text as format,
+      o.size_oz::float8 as size_oz, o.size_assumed
+    from offerings o
+    where o.venue_id = ${venueId} and o.price is null
+    order by o.format, o.beer_name
   `;
 }
 

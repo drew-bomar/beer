@@ -19,11 +19,13 @@ import {
 import {
   fetchOfferings,
   fetchSpecials,
+  fetchUnpricedOfferings,
   fetchVenueBySlug,
   SINGLE_SERVING,
   type OfferingRow,
   type SpecialRow,
 } from "@/lib/venue-data";
+import { servingLabel as unpricedServingLabel } from "@/lib/format";
 import { sql } from "@/lib/db";
 import { signedPhotoUrl } from "@/lib/supabase-admin";
 import PhotoUpload from "@/components/PhotoUpload";
@@ -202,10 +204,11 @@ export default async function VenuePage({ params }: Props) {
     );
   }
 
-  const [offerings, specials, approvedPhoto] = await Promise.all([
+  const [offerings, specials, approvedPhoto, unpriced] = await Promise.all([
     fetchOfferings([venue.id]),
     fetchSpecials([venue.id]),
     fetchLatestApprovedPhoto(venue.id),
+    fetchUnpricedOfferings(venue.id),
   ]);
   // Private bucket: the public page only ever gets a short-lived signed URL.
   const photoUrl = approvedPhoto ? await signedPhotoUrl(approvedPhoto.storage_path) : null;
@@ -317,6 +320,28 @@ export default async function VenuePage({ params }: Props) {
           <ul className="mt-2 flex flex-col gap-2">
             {bulk.map((item) => (
               <BeerRow key={item.o.id} item={item} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {unpriced.length > 0 && (
+        <section className="mt-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            Also served here — prices unknown
+          </h2>
+          <p className="mt-1 text-xs text-neutral-500">
+            From the venue&apos;s menu. Know what these cost? Upload a menu photo below.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {unpriced.map((u) => (
+              <li key={u.id} className="flex items-baseline justify-between text-sm">
+                <span className="text-neutral-800">
+                  {u.beer_name}
+                  <span className="text-neutral-400"> · {unpricedServingLabel(u)}</span>
+                </span>
+                <span className="text-neutral-400">$?</span>
+              </li>
             ))}
           </ul>
         </section>

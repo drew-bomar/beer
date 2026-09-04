@@ -20,7 +20,8 @@ type ParsedOffering = {
   format: OfferingFormat;
   sizeOz: number;
   sizeAssumed: boolean;
-  price: number;
+  /** Null = roster-only row: beer known from the menu, price not yet known. */
+  price: number | null;
   source: PriceSource;
   isPopular: boolean;
 };
@@ -42,9 +43,11 @@ function parseOfferingForm(formData: FormData): ParsedOffering | { error: string
   if (!(PRICE_SOURCES as readonly string[]).includes(source))
     return { error: "Pick a price source." };
 
-  const price = Number(priceRaw);
-  if (priceRaw === "" || !Number.isFinite(price) || price < 0)
-    return { error: "Price must be a non-negative number." };
+  // Blank price is allowed: a roster-only row (excluded from ranking, shown on
+  // the venue page as "$?" until someone supplies the real price).
+  const price = priceRaw === "" ? null : Number(priceRaw);
+  if (price !== null && (!Number.isFinite(price) || price < 0))
+    return { error: "Price must be a non-negative number (or blank if unknown)." };
 
   // Assumed-size rule (spec §7): blank size → 12oz bottle/can, 16oz draft,
   // flagged size_assumed. Pitchers/buckets must have an explicit size.
