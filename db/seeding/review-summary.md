@@ -184,3 +184,99 @@ Apply with: `scripts/prod-db.sh -f - < db/seeding/apply-offerings-specials.sql`
 - nick-s-pub: HH-only price kept out of standing offerings: Domestic Pitcher (Bud, Bud Select, Bud Lt, Coors Lt, Miller Lt, Golden Lt, Busch, Busch Lt) $8.0
 - felix-s-pizza-pub: special not insertable (missing days/times): Homepage lists 'Happy-hour food' as a feature — no days, times, or prices published
 - the-pat-connolly-tavern: special not insertable (missing days/times): 'HAPPY HOUR Specials' section heading present on site but details not readable/published
+
+## Founder-intel round (Tin Roof PDF · Molly's image · Great Grizzly roster)
+
+
+**tin-roof-st-louis**
+  - Angry Orchard · draft 16oz (assumed) · $6.00
+  - Blue Moon · draft 16oz (assumed) · $6.00
+  - Bud Light · draft 16oz (assumed) · $5.00
+  - Busch Light · draft 16oz (assumed) · $5.00
+  - Coors Light · draft 16oz (assumed) · $5.00
+  - Kona Big Wave · draft 16oz (assumed) · $6.00
+  - Lagunitas IPA · draft 16oz (assumed) · $7.00
+  - Mango Cart · draft 16oz (assumed) · $6.00
+  - Michelob Ultra · draft 16oz (assumed) · $5.00
+  - Miller Lite · draft 16oz (assumed) · $5.00
+  - Modelo Especial · draft 16oz (assumed) · $6.00
+  - Tin Roof Light Lager · draft 16oz (assumed) · $5.00
+  - Voodoo Ranger Juicy Haze IPA · draft 16oz (assumed) · $6.00
+  - Yuengling · draft 16oz (assumed) · $5.00
+  - Bud Light · bottle 12oz (assumed) · $5.00
+  - Budweiser · bottle 12oz (assumed) · $5.00
+  - Bud Select · bottle 12oz (assumed) · $5.00
+  - Coors Light · bottle 12oz (assumed) · $5.00
+  - Corona Extra · bottle 12oz (assumed) · $6.00
+  - Corona Light · bottle 12oz (assumed) · $6.00
+  - Michelob Ultra · bottle 12oz (assumed) · $5.00
+  - Michelob Ultra Zero · bottle 12oz (assumed) · $5.00
+  - Michelob Ultra Zero Lime · bottle 12oz (assumed) · $5.00
+  - Miller High Life · bottle 12oz (assumed) · $6.00
+  - Miller Lite · bottle 12oz (assumed) · $5.00
+  - Modelo Especial · bottle 12oz (assumed) · $6.00
+  - Pacifico · bottle 12oz (assumed) · $6.00
+  - Zwickel Light · bottle 12oz (assumed) · $5.00
+  - Busch Light · can 16oz · $5.00
+
+**molly-s-in-soulard**
+  - Guinness · can 16oz · $7.00
+  - Mango Cart · can 12oz · $6.00
+  - Blue Moon · can 16oz · $6.00
+  - Stella Artois · bottle 12oz · $6.00
+  - Corona Extra · bottle 12oz · $6.00
+  - Modelo Especial · bottle 12oz · $6.00
+  - 4 Hands Incarnation IPA · can 16oz · $8.00
+  - Urban Chestnut Bushelhead Cider · can 16oz · $9.00
+  - 4 Hands City Wide APA · can 16oz · $8.00
+  - 2nd Shift Brewligans IPA · can 16oz · $8.00
+  - Michelob Ultra · bottle 12oz (assumed) · $5.25
+  - Bud Light · bottle 12oz (assumed) · $5.25
+  - Bud Select · bottle 12oz (assumed) · $5.25
+  - Budweiser · bottle 12oz (assumed) · $5.25
+  - Busch · bottle 12oz (assumed) · $5.25
+  - Busch Light · bottle 12oz (assumed) · $5.25
+  - Miller Lite · bottle 12oz (assumed) · $5.25
+  - Coors Light · bottle 12oz (assumed) · $5.25
+  - Yuengling · bottle 12oz (assumed) · $6.00
+  - Stag · bottle 12oz (assumed) · $4.50
+  - PBR · bottle 12oz (assumed) · $4.50
+  - Domestic bucket (5 beers) · bucket 60oz (assumed) · $25.00
+
+**great-grizzly-bear**
+  - Brick River Crisp Apple Cider · draft 16oz (assumed) · $?
+  - Bud Light · draft 16oz (assumed) · $?
+  - Busch Light · draft 16oz (assumed) · $?
+  - Goose Island Hazy Beer Hug IPA · draft 16oz (assumed) · $?
+  - Kona Big Wave · draft 16oz (assumed) · $?
+  - Michelob Ultra · draft 16oz (assumed) · $?
+  - Modelo Especial · draft 16oz (assumed) · $?
+  - Stella Artois · draft 16oz (assumed) · $?
+  - Yuengling · draft 16oz (assumed) · $?
+  - Blue Moon · draft 16oz (assumed) · $?
+  - Golden Road Mango Cart · draft 16oz (assumed) · $?
+  - Busch · can 16oz · $?
+  - Busch Light · can 16oz · $?
+  - Guinness · can 16oz · $?
+  - Iron Hops Battle Brew IPA · can 16oz · $?
+  - Iron Hops Ka-Kaw Lager · can 16oz · $?
+  - Leinenkugel's Summer Shandy · can 16oz · $?
+  - PBR · can 16oz · $?
+  - Stag · can 16oz · $?
+  - 4 Hands City Wide · can 16oz · $?
+  - 4 Hands Parker Pilsner · can 16oz · $?
+  - Bud Light · bottle 12oz · $?
+  - Bud Light Lime · bottle 12oz · $?
+  - Bud Select · bottle 12oz · $?
+  - Budweiser · bottle 12oz · $?
+  - Busch · bottle 12oz · $?
+  - Busch Light · bottle 12oz · $?
+  - Coors Banquet · bottle 12oz · $?
+  - Coors Light · bottle 12oz · $?
+  - Corona · bottle 12oz · $?
+  - Coronita · bottle 7oz · $?
+  - Michelob Golden Light · bottle 12oz · $?
+  - Michelob Ultra · bottle 12oz · $?
+  - Miller Lite · bottle 12oz · $?
+  - Modelito Especial · bottle 7oz · $?
+  - Modelo Negra · bottle 12oz · $?
